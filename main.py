@@ -6,8 +6,24 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import AgentExecutor, create_openai_functions_agent
 from tools import search_tool, wiki_tool, save_tool, cs_skins_tool
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import json
+import os
 
 load_dotenv()
+
+# Initialize FastAPI app
+app = FastAPI()
+
+# Add CORS middleware to allow cross-origin requests from frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite default port
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ResearchResponse(BaseModel):
     topic: str
@@ -15,6 +31,12 @@ class ResearchResponse(BaseModel):
     sources: list[str]
     tools_used: list[str]
     
+class QueryRequest(BaseModel):
+    query: str
+
+class QueryResponse(BaseModel):
+    answer: str
+    sources: list[str] = []
 
 llm = ChatOpenAI(model="gpt-4o-mini")
 parser = PydanticOutputParser(pydantic_object=ResearchResponse)
@@ -59,6 +81,42 @@ def print_response(response):
     for tool in response.tools_used:
         print(f"- {tool}")
     print("="*50 + "\n")
+
+@app.post("/query", response_model=QueryResponse)
+async def handle_query(request: QueryRequest):
+    """
+    Endpoint to handle queries from the frontend.
+    Runs the agent executor with the user's query and returns the response.
+    """
+    if not request.query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+    
+    try:
+        print(f"Received query: {request.query}")
+        raw_response = agent_executor.invoke({"input": request.query})
+        
+        try:
+            structured_response = parser.parse(raw_response.get("output", ""))
+            # Return the structured response in a format expected by the frontend
+            return QueryResponse(
+                answer=structured_response.summary,
+                sources=structured_response.sources
+            )
+        except Exception as e:
+            print(f"Error parsing structured response: {str(e)}")
+            # Fallback: Return the raw output
+            return QueryResponse(
+                answer=raw_response.get("output", "Sorry, I couldn't process that request."),
+                sources=[]
+            )
+    
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating response: {str(e)}")
+
+@app.get("/")
+def read_root():
+    return {"message": "CS2 Skin Economy API is running!"}
 
 def main():
     print("CS:GO Skin Economy Research Assistant")

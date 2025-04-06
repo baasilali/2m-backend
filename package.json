@@ -1,0 +1,11 @@
+{
+  "name": "2m-backend",
+  "version": "1.0.0",
+  "description": "An intelligent research assistant built with LangChain that helps gather and structure information on the Counter Strike skin economy and marketplace, using both a local database of third-party marketplace data and online sources.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
