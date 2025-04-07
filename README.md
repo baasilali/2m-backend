@@ -18,6 +18,10 @@ An intelligent research assistant built with LangChain that helps gather and str
 - Multiple tool integration (CS:GO Skins Database, Search, Wikipedia, Save)
 - Clean and maintainable code structure
 - FastAPI integration for connecting with the frontend
+- Advanced search capabilities:
+  - Embedding-based semantic search for natural language queries
+  - Fuzzy matching for handling typos and minor spelling errors
+  - Hybrid search combining both approaches for optimal results
 
 ## Setup
 
@@ -97,6 +101,13 @@ npm run dev
 
 - **Dependency conflicts**: If you encounter Python dependency conflicts, try installing with `pip install -r requirements.txt --no-cache-dir`
 
+- **FAISS installation issues**: If you encounter problems installing the FAISS library:
+  - On macOS: Try `brew install faiss` first, then `pip install faiss-cpu`
+  - On Linux: Ensure you have build tools installed: `apt-get install build-essential`
+  - On Windows: FAISS can be tricky to install - consider using a pre-built wheel from a trusted source
+
+- **First search is slow**: The first search after starting the application may be slow while the embeddings are being generated. Subsequent searches will be faster as embeddings are cached.
+
 ## Usage
 
 ### Console Mode
@@ -150,6 +161,13 @@ The marketplace data is stored in `data/prices_output.json`. This contains price
 - **Pydantic Models**: Response data is structured using Pydantic for type safety and consistency
 - **Output Parsing**: PydanticOutputParser ensures consistent response format with topic, summary, sources, and tools used
 - **Error Handling**: Multi-level exception handling for robust operation when parsing fails
+
+### Advanced Search Engine
+- **Semantic Search**: Uses sentence-transformers to create vector embeddings for item names
+- **FAISS Integration**: Fast similarity search using Facebook AI Similarity Search (FAISS)
+- **Fuzzy Matching**: Leverages FuzzyWuzzy for edit-distance based matching to handle typos
+- **Hybrid Approach**: Combines semantic and fuzzy matching with configurable weights
+- **Caching**: Embeddings are cached to disk for faster startup and search operations
 
 ### Marketplace Data Processing
 - **Intelligent Query Parsing**: Natural language understanding to extract marketplace names, item types, and query intents

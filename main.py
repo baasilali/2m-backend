@@ -11,6 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
 
+# Try to import the search engine - this might fail if dependencies are missing
+try:
+    from search_utils import get_skin_search_engine
+    has_search_engine = True
+except ImportError:
+    try:
+        from search_utils_fallback import get_skin_search_engine
+        has_search_engine = True
+    except ImportError:
+        has_search_engine = False
+        print("WARNING: Could not import either search engine - search functionality will be limited")
+
 load_dotenv()
 
 # Initialize FastAPI app
@@ -24,6 +36,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize the search engine at app startup
+@app.on_event("startup")
+async def startup_event():
+    # Initialize the search engine to preload embeddings
+    if has_search_engine:
+        try:
+            print("Initializing skin search engine...")
+            search_engine = get_skin_search_engine()
+            print(f"Search engine initialized with {len(search_engine.item_names)} items")
+        except Exception as e:
+            print(f"Error initializing search engine: {str(e)}")
+    else:
+        print("Search engine not available - search functionality will be limited")
 
 class ResearchResponse(BaseModel):
     topic: str
