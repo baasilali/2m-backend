@@ -49,11 +49,11 @@ graph TD
     H[Fuzzy Matching] <--> I[Hybrid Results]
     G --> I
     
-    style A fill:#f9d5e5,stroke:#333,stroke-width:2px
-    style D fill:#f9d5e5,stroke:#333,stroke-width:2px
-    style C fill:#eeeeee,stroke:#333,stroke-width:2px
-    style F fill:#b5ead7,stroke:#333,stroke-width:2px
-    style I fill:#c7ceea,stroke:#333,stroke-width:2px
+    style A fill:#36454F,stroke:#333,stroke-width:2px
+    style D fill:#36454F,stroke:#333,stroke-width:2px
+    style C fill:#36454F,stroke:#333,stroke-width:2px
+    style F fill:#36454F,stroke:#333,stroke-width:2px
+    style I fill:#36454F,stroke:#333,stroke-width:2px
 ```
 
 1. **Database Preparation**:
