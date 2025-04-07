@@ -23,6 +23,77 @@ An intelligent research assistant built with LangChain that helps gather and str
   - Fuzzy matching for handling typos and minor spelling errors
   - Hybrid search combining both approaches for optimal results
 
+## Vector Embeddings for Semantic Search
+
+### What Are Vector Embeddings?
+
+Vector embeddings are numerical representations of text in a high-dimensional space where semantic similarity is captured by vector distance. In simpler terms, they transform words and phrases into lists of numbers (vectors) such that expressions with similar meanings have similar vectors.
+
+For example, the embeddings for "AWP Dragon Lore" and "Dragon Lore AWP" would be close to each other in the vector space because they have very similar meanings, even though the word order is different. This allows our system to understand that a user asking about "Hedge Maze gloves" is likely interested in "Sport Gloves | Hedge Maze".
+
+### How Vector Embeddings Work in Our System
+
+Our system uses vector embeddings in the following process:
+
+```mermaid
+graph TD
+    A[Skin Database] --> B[Vector Encoding]
+    B --> C[FAISS Index]
+    
+    D[User Query] --> E[Vector Encoding]
+    E --> F[Vector Similarity Search]
+    
+    C --> F
+    F --> G[Ranked Results]
+    
+    H[Fuzzy Matching] <--> I[Hybrid Results]
+    G --> I
+    
+    style A fill:#f9d5e5,stroke:#333,stroke-width:2px
+    style D fill:#f9d5e5,stroke:#333,stroke-width:2px
+    style C fill:#eeeeee,stroke:#333,stroke-width:2px
+    style F fill:#b5ead7,stroke:#333,stroke-width:2px
+    style I fill:#c7ceea,stroke:#333,stroke-width:2px
+```
+
+1. **Database Preparation**:
+   - Each skin name in our database is transformed into a vector using a pre-trained Sentence Transformer model (specifically "all-MiniLM-L6-v2").
+   - These vectors capture the semantic meaning of each skin name, including its weapon type, pattern, and wear.
+   - We enhance the text before encoding to include variations of the name (e.g., adding "FN" alongside "Factory New") for better matching.
+
+2. **Indexing**:
+   - All these vectors are stored in a FAISS index, which is a library specialized for efficient similarity search.
+   - FAISS allows us to quickly find the most similar vectors to a query, even in a large database.
+
+3. **Query Processing**:
+   - When a user submits a query like "How much is the Hedge Maze gloves?", we convert it to a vector using the same model.
+   - We then search the FAISS index to find the skin vectors most similar to the query vector.
+   - This semantic search can find relevant items even when the query doesn't exactly match the item names.
+
+4. **Hybrid Search**:
+   - We combine the semantic search results with fuzzy string matching (using Levenshtein distance).
+   - Semantic search is great for understanding concepts, while fuzzy matching excels at handling typos.
+   - Results are scored using a weighted combination of semantic and fuzzy match scores.
+
+5. **Result Ranking**:
+   - Items are ranked by their combined similarity scores.
+   - The system returns the most relevant matches, even if the query has typos or uses different terminology than our database.
+
+### Performance Considerations
+
+- **Caching**: We cache embeddings to disk to avoid regenerating them on every startup.
+- **Fallback Mechanism**: A simpler fuzzy-match-only system is available if the embedding libraries can't be loaded.
+- **Computation Efficiency**: FAISS uses optimized algorithms for fast nearest-neighbor search, making queries fast even with thousands of items.
+
+### Benefits of Vector Embeddings in Our System
+
+1. **Natural Language Understanding**: Users can query in natural language rather than having to know exact item names.
+2. **Typo Tolerance**: The system can understand queries even with spelling mistakes.
+3. **Concept Matching**: It can connect related terms (e.g., understanding that "Dragon Lore" refers to an AWP skin).
+4. **Flexibility**: The approach works well even as new CS2 skins are added to the database.
+
+This approach significantly improves the user experience by allowing them to search for skins in the same way they would naturally ask about them, rather than requiring exact database terminology.
+
 ## Setup
 
 ### Backend Setup
