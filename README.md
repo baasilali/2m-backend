@@ -31,6 +31,8 @@ Vector embeddings are numerical representations of text in a high-dimensional sp
 
 For example, the embeddings for "AWP Dragon Lore" and "Dragon Lore AWP" would be close to each other in the vector space because they have very similar meanings, even though the word order is different. This allows our system to understand that a user asking about "Hedge Maze gloves" is likely interested in "Sport Gloves | Hedge Maze".
 
+Using this methodoloy, we can then give a more accurate response to our user based on our parsed JSON data. 
+
 ### How Vector Embeddings Work in Our System
 
 Our system uses vector embeddings in the following process:
