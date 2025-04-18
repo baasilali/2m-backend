@@ -52,11 +52,16 @@ class SkinSearchEngine:
         with open(data_path, 'r') as file:
             marketplace_data = json.load(file)
         
-        # Extract items
-        if "marketplace_data" in marketplace_data:
-            self.items = marketplace_data.get("marketplace_data", {})
+        # Handle the new skinport_data.json structure
+        if isinstance(marketplace_data, list):
+            # Convert list of items to dictionary with market_hash_name as key
+            self.items = {item['market_hash_name']: item for item in marketplace_data}
         else:
-            self.items = marketplace_data
+            # Handle old format or other structures
+            if "marketplace_data" in marketplace_data:
+                self.items = marketplace_data.get("marketplace_data", {})
+            else:
+                self.items = marketplace_data
         
         # Create a list of item names for fuzzy matching
         self.item_names = list(self.items.keys())
@@ -259,6 +264,48 @@ class SkinSearchEngine:
         """
         results = self.hybrid_search(query, top_k=top_k)
         return [r['item_name'] for r in results]
+
+    def _expand_query(self, query: str) -> str:
+        """
+        Expand a query with common skin terms to improve matching
+        """
+        # Check for common weapon types
+        weapon_types = ["ak-47", "m4a4", "m4a1-s", "awp", "desert eagle", "deagle", 
+                        "knife", "karambit", "bayonet", "butterfly", "gloves"]
+        wear_types = ["factory new", "fn", "minimal wear", "mw", "field-tested", "ft", 
+                     "well-worn", "ww", "battle-scarred", "bs"]
+        
+        # Add some common terms if not present
+        expanded_terms = []
+        
+        # Check for specific weapon types
+        for weapon in weapon_types:
+            if weapon in query.lower():
+                expanded_terms.append(weapon)
+        
+        # Check for wear conditions
+        for wear in wear_types:
+            if wear in query.lower():
+                expanded_terms.append(wear)
+        
+        # Check for gloves
+        if "glove" in query.lower() or "gloves" in query.lower():
+            if not any(term in query.lower() for term in ["sport gloves", "driver gloves", "specialist gloves", 
+                                                         "moto gloves", "hand wraps", "bloodhound gloves"]):
+                expanded_terms.append("sport gloves")
+        
+        # Check for specific patterns
+        if "fade" in query.lower() and not any(w in query.lower() for w in weapon_types):
+            expanded_terms.append("knife")
+        
+        if "doppler" in query.lower() and not any(w in query.lower() for w in weapon_types):
+            expanded_terms.append("knife")
+        
+        # Add expanded terms to query
+        if expanded_terms:
+            return f"{query} {' '.join(expanded_terms)}"
+        
+        return query
 
 
 # Initialize a global instance to be imported by other modules

@@ -28,11 +28,16 @@ class SkinSearchEngineFallback:
         with open(data_path, 'r') as file:
             marketplace_data = json.load(file)
         
-        # Extract items
-        if "marketplace_data" in marketplace_data:
-            self.items = marketplace_data.get("marketplace_data", {})
+        # Handle the new skinport_data.json structure
+        if isinstance(marketplace_data, list):
+            # Convert list of items to dictionary with market_hash_name as key
+            self.items = {item['market_hash_name']: item for item in marketplace_data}
         else:
-            self.items = marketplace_data
+            # Handle old format or other structures
+            if "marketplace_data" in marketplace_data:
+                self.items = marketplace_data.get("marketplace_data", {})
+            else:
+                self.items = marketplace_data
         
         # Create a list of item names for fuzzy matching
         self.item_names = list(self.items.keys())
@@ -152,7 +157,7 @@ def get_skin_search_engine(data_path: Optional[str] = None) -> SkinSearchEngineF
         if data_path is None:
             # Use default path
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(current_dir, "data", "prices_output.json")
+            data_path = os.path.join(current_dir, "data", "skinport_data.json")
         
         get_skin_search_engine.instance = SkinSearchEngineFallback(data_path)
     

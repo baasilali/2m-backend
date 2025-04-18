@@ -166,7 +166,8 @@ def main():
             
             try:
                 structured_response = parser.parse(raw_response.get("output", ""))
-                print_response(structured_response)
+                # Only show the summary in terminal mode
+                print(f"\n{structured_response.summary}")
             except Exception as e:
                 print(f"\nError parsing structured response: {str(e)}")
                 print(f"\nRaw response: {raw_response.get('output', 'No output')}")
