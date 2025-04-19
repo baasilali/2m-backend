@@ -6,6 +6,7 @@ from sentence_transformers import SentenceTransformer
 from fuzzywuzzy import process
 from typing import Dict, List, Tuple, Any, Optional
 import pickle
+from pathlib import Path
 
 # Class to handle both embedding-based and fuzzy search
 class SkinSearchEngine:
@@ -18,21 +19,10 @@ class SkinSearchEngine:
             embedding_cache_path: Path to save/load embeddings cache
             model_name: Name of the sentence-transformer model to use
         """
-        # Safely load the model - handles both older and newer huggingface-hub versions
-        try:
-            self.model = SentenceTransformer(model_name)
-        except Exception as e:
-            print(f"Error loading model with default settings: {e}")
-            # Try with no_cache=True which works with newer huggingface-hub versions
-            try:
-                from sentence_transformers import SentenceTransformer
-                print("Trying alternative model loading method for newer huggingface-hub versions...")
-                self.model = SentenceTransformer(model_name, cache_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_cache"))
-            except Exception as e2:
-                print(f"Error loading model with alternative method: {e2}")
-                raise RuntimeError(f"Failed to load SentenceTransformer model: {e} AND {e2}")
-        
+        self.model_name = model_name
+        self.model = None
         self.index = None
+        self.skin_data = []
         self.items = {}
         self.item_names = []
         self.embeddings = None
@@ -41,6 +31,9 @@ class SkinSearchEngine:
             "data", 
             "embeddings_cache.pkl"
         )
+        
+        # Load model first
+        self.load_model()
         
         # Initialize data if path is provided
         if data_path:
@@ -161,21 +154,60 @@ class SkinSearchEngine:
         if not self.index or not self.item_names:
             return []
         
-        # Encode the query
-        query_embedding = self.model.encode([query])
+        # Special handling for search terms that match the beginning of items
+        # This helps prioritize exact prefix matches alongside semantic matches
+        prefix_matches = []
+        query_lower = query.lower()
         
-        # Search in the FAISS index
-        distances, indices = self.index.search(query_embedding.astype(np.float32), min(top_k, len(self.item_names)))
-        
-        # Extract results
-        results = []
-        for i, idx in enumerate(indices[0]):
-            if idx < len(self.item_names):
-                # Convert distance to similarity score (smaller distance = higher similarity)
-                similarity = 1.0 / (1.0 + distances[0][i])
-                results.append((self.item_names[idx], similarity))
-        
-        return results
+        for item_name in self.item_names:
+            item_lower = item_name.lower()
+            
+            # Check if item name starts with the query
+            if item_lower.startswith(query_lower):
+                # Perfect prefix match
+                prefix_matches.append((item_name, 1.0))
+            # Check if item contains the query as a word
+            elif f" {query_lower} " in f" {item_lower} ":
+                # Contains the exact query as a word
+                prefix_matches.append((item_name, 0.9))
+            # Check if any word in the item starts with the query
+            elif any(word.startswith(query_lower) for word in item_lower.split()):
+                # Word starts with query
+                prefix_matches.append((item_name, 0.8))
+                
+        # Perform semantic search if we haven't found enough prefix matches
+        if len(prefix_matches) < top_k:
+            try:
+                # Encode the query
+                query_embedding = self.model.encode([query])
+                
+                # Search in the FAISS index
+                distances, indices = self.index.search(query_embedding.astype(np.float32), min(top_k*2, len(self.item_names)))
+                
+                # Extract results
+                semantic_results = []
+                for i, idx in enumerate(indices[0]):
+                    if idx < len(self.item_names):
+                        # Convert distance to similarity score (smaller distance = higher similarity)
+                        similarity = 1.0 / (1.0 + distances[0][i])
+                        item_name = self.item_names[idx]
+                        
+                        # Only add if not already in prefix matches
+                        if not any(item_name == pm[0] for pm in prefix_matches):
+                            semantic_results.append((item_name, similarity))
+                
+                # Combine results (prefix matches first, then semantic)
+                combined_results = prefix_matches + semantic_results
+                combined_results.sort(key=lambda x: x[1], reverse=True)
+                
+                return combined_results[:top_k]
+            except Exception as e:
+                print(f"Error during semantic search: {e}")
+                # If semantic search fails, return whatever prefix matches we found
+                return prefix_matches[:top_k]
+        else:
+            # If we have enough prefix matches, just return those
+            return prefix_matches[:top_k]
     
     def fuzzy_search(self, query: str, top_k: int = 3) -> List[Tuple[str, int]]:
         """
@@ -190,9 +222,32 @@ class SkinSearchEngine:
         """
         if not self.item_names:
             return []
+            
+        # Try to extract keywords that might be part of skin names
+        query_parts = query.lower().split()
         
-        # Use process.extract for fuzzy matching
-        return process.extract(query, self.item_names, limit=top_k)
+        # Use regular fuzzy matching first
+        main_results = process.extract(query, self.item_names, limit=top_k)
+        results_dict = {name: score for name, score in main_results}
+        
+        # Also try matching individual parts if there are multiple words
+        if len(query_parts) > 1:
+            for part in query_parts:
+                # Skip very short parts and common weapon names
+                if len(part) < 3 or part in ["ak", "m4", "awp", "usp", "p90"]:
+                    continue
+                    
+                # Look for items that contain this part
+                for item_name in self.item_names:
+                    if part in item_name.lower() and item_name not in results_dict:
+                        # Add this result with a moderate score
+                        results_dict[item_name] = 70  # Base score for partial matches
+        
+        # Convert back to list format
+        results = [(name, score) for name, score in results_dict.items()]
+        results.sort(key=lambda x: x[1], reverse=True)
+        
+        return results[:top_k]
     
     def hybrid_search(self, query: str, top_k: int = 5, 
                       semantic_weight: float = 0.7, 
@@ -262,16 +317,73 @@ class SkinSearchEngine:
         Returns:
             List of item names ranked by relevance
         """
-        results = self.hybrid_search(query, top_k=top_k)
-        return [r['item_name'] for r in results]
+        # Expand the query first (which now includes normalization)
+        expanded_query = self._expand_query(query)
+        
+        # Also try the original query in case the normalization missed something
+        results_expanded = {}
+        results_original = {}
+        
+        # Try expanded/normalized query
+        semantic_results_expanded = self.semantic_search(expanded_query, top_k=top_k*3)
+        fuzzy_results_expanded = self.fuzzy_search(expanded_query, top_k=top_k*3)
+        
+        # Try original query as well if it's different
+        if expanded_query != query:
+            semantic_results_original = self.semantic_search(query, top_k=top_k*2)
+            fuzzy_results_original = self.fuzzy_search(query, top_k=top_k*2)
+            
+            # Process original query results
+            for item_name, score in semantic_results_original:
+                results_original[item_name] = score * 0.7
+                
+            for item_name, score in fuzzy_results_original:
+                if item_name in results_original:
+                    results_original[item_name] += (score / 100.0) * 0.3
+                else:
+                    results_original[item_name] = (score / 100.0) * 0.3
+        
+        # Process expanded query results
+        for item_name, score in semantic_results_expanded:
+            results_expanded[item_name] = score * 0.7
+            
+        for item_name, score in fuzzy_results_expanded:
+            if item_name in results_expanded:
+                results_expanded[item_name] += (score / 100.0) * 0.3
+            else:
+                results_expanded[item_name] = (score / 100.0) * 0.3
+        
+        # Combine results, favoring normalized/expanded query but including unique results from original
+        combined_results = results_expanded.copy()
+        
+        for item_name, score in results_original.items():
+            if item_name in combined_results:
+                # Slightly boost score if it appeared in both queries
+                combined_results[item_name] = max(combined_results[item_name], score) * 1.1
+            else:
+                combined_results[item_name] = score
+        
+        # Print debug info
+        normalized_query_info = f"Original: '{query}', Normalized: '{expanded_query}'"
+        if query != expanded_query:
+            print(f"Query normalized: {normalized_query_info}")
+                
+        # Sort by combined score
+        sorted_results = sorted(combined_results.items(), key=lambda x: x[1], reverse=True)
+        
+        # Return top k results
+        return [item_name for item_name, _ in sorted_results[:top_k]]
 
     def _expand_query(self, query: str) -> str:
         """
-        Expand a query with common skin terms to improve matching
+        Expand and normalize a query with common skin terms to improve matching
         """
+        # Normalize the query formatting first
+        normalized_query = self._normalize_query_format(query)
+        
         # Check for common weapon types
         weapon_types = ["ak-47", "m4a4", "m4a1-s", "awp", "desert eagle", "deagle", 
-                        "knife", "karambit", "bayonet", "butterfly", "gloves"]
+                       "glock-18", "knife", "karambit", "bayonet", "butterfly", "gloves"]
         wear_types = ["factory new", "fn", "minimal wear", "mw", "field-tested", "ft", 
                      "well-worn", "ww", "battle-scarred", "bs"]
         
@@ -280,43 +392,231 @@ class SkinSearchEngine:
         
         # Check for specific weapon types
         for weapon in weapon_types:
-            if weapon in query.lower():
+            if weapon in normalized_query.lower():
                 expanded_terms.append(weapon)
         
         # Check for wear conditions
         for wear in wear_types:
-            if wear in query.lower():
+            if wear in normalized_query.lower():
                 expanded_terms.append(wear)
         
         # Check for gloves
-        if "glove" in query.lower() or "gloves" in query.lower():
-            if not any(term in query.lower() for term in ["sport gloves", "driver gloves", "specialist gloves", 
+        if "glove" in normalized_query.lower() or "gloves" in normalized_query.lower():
+            if not any(term in normalized_query.lower() for term in ["sport gloves", "driver gloves", "specialist gloves", 
                                                          "moto gloves", "hand wraps", "bloodhound gloves"]):
                 expanded_terms.append("sport gloves")
         
         # Check for specific patterns
-        if "fade" in query.lower() and not any(w in query.lower() for w in weapon_types):
+        if "fade" in normalized_query.lower() and not any(w in normalized_query.lower() for w in weapon_types):
             expanded_terms.append("knife")
         
-        if "doppler" in query.lower() and not any(w in query.lower() for w in weapon_types):
+        if "doppler" in normalized_query.lower() and not any(w in normalized_query.lower() for w in weapon_types):
             expanded_terms.append("knife")
-        
+            
         # Add expanded terms to query
         if expanded_terms:
-            return f"{query} {' '.join(expanded_terms)}"
+            return f"{normalized_query} {' '.join(expanded_terms)}"
         
+        return normalized_query
+        
+    def _normalize_query_format(self, query: str) -> str:
+        """
+        Normalize query to match CS:GO skin naming conventions
+        
+        - Convert "weapon skin" to "Weapon | Skin"
+        - Handle common typos and abbreviations
+        """
+        # Dictionary of weapon name mappings (lowercase to proper case)
+        weapon_mappings = {
+            "ak47": "AK-47",
+            "ak": "AK-47",
+            "ak-47": "AK-47",
+            "m4a4": "M4A4",
+            "m4a1s": "M4A1-S",
+            "m4a1-s": "M4A1-S",
+            "m4": "M4A4",
+            "awp": "AWP",
+            "desert eagle": "Desert Eagle",
+            "deagle": "Desert Eagle",
+            "eagle": "Desert Eagle",
+            "glock": "Glock-18",
+            "glock18": "Glock-18",
+            "glock-18": "Glock-18",
+            "glocks": "Glock-18",
+            "usp": "USP-S",
+            "usps": "USP-S",
+            "usp-s": "USP-S",
+            "p250": "P250",
+            "five-seven": "Five-SeveN",
+            "fiveseven": "Five-SeveN",
+            "cz75": "CZ75-Auto",
+            "cz": "CZ75-Auto",
+            "tec9": "Tec-9",
+            "tec-9": "Tec-9",
+            "nova": "Nova",
+            "sawed-off": "Sawed-Off",
+            "sawedoff": "Sawed-Off",
+            "mag7": "MAG-7",
+            "mag-7": "MAG-7",
+            "xm1014": "XM1014",
+            "xm": "XM1014",
+            "p90": "P90",
+            "mp9": "MP9",
+            "mac10": "MAC-10",
+            "mac-10": "MAC-10",
+            "mp7": "MP7",
+            "ump45": "UMP-45",
+            "ump-45": "UMP-45",
+            "pp-bizon": "PP-Bizon",
+            "ppbizon": "PP-Bizon",
+            "bizon": "PP-Bizon",
+            "negev": "Negev",
+            "m249": "M249",
+            "galil": "Galil AR",
+            "galil ar": "Galil AR",
+            "famas": "FAMAS",
+            "sg553": "SG 553",
+            "sg-553": "SG 553",
+            "sg 553": "SG 553",
+            "aug": "AUG",
+            "ssg08": "SSG 08",
+            "ssg-08": "SSG 08",
+            "ssg 08": "SSG 08",
+            "scout": "SSG 08",
+            "g3sg1": "G3SG1",
+            "scar20": "SCAR-20",
+            "scar-20": "SCAR-20",
+        }
+        
+        # Try to identify weapon and skin parts
+        query_lower = query.lower()
+        
+        # First check if query already has the | format
+        if " | " in query:
+            return query  # Already in proper format
+            
+        # Try to match the weapon name at the beginning of the query
+        weapon_name = None
+        skin_name = None
+        
+        # Check entire query against weapon mappings first (for queries like "ak-47")
+        if query_lower in weapon_mappings:
+            return weapon_mappings[query_lower]
+            
+        # Look for weapons in the query
+        for weapon_key, weapon_proper in weapon_mappings.items():
+            # Check if query starts with this weapon name
+            if query_lower.startswith(weapon_key + " "):
+                weapon_name = weapon_proper
+                # Extract the rest as the skin name
+                skin_name = query[len(weapon_key):].strip()
+                break
+        
+        # If we identified both weapon and skin, format properly
+        if weapon_name and skin_name:
+            # Capitalize first letter of each word in skin name
+            skin_parts = skin_name.split()
+            formatted_skin = " ".join(word.capitalize() for word in skin_parts)
+            return f"{weapon_name} | {formatted_skin}"
+        
+        # If we couldn't parse properly, just return original query
         return query
+
+    def load_model(self):
+        """Load the sentence transformer model"""
+        try:
+            cache_dir = Path.home() / ".cache" / "sentence-transformers"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            self.model = SentenceTransformer(
+                self.model_name,
+                cache_folder=str(cache_dir),
+                device="cpu"
+            )
+            print(f"Successfully loaded model {self.model_name}")
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            raise RuntimeError(f"Failed to load model {self.model_name}: {str(e)}")
+            
+    def add_skins(self, skins: List[Dict[str, Any]]):
+        """Add skins to the search index"""
+        if not self.model:
+            self.load_model()
+            
+        # Extract text descriptions for embedding
+        texts = []
+        for skin in skins:
+            desc = f"{skin.get('name', '')} {skin.get('description', '')} {skin.get('rarity', '')}"
+            texts.append(desc)
+            
+        # Generate embeddings
+        embeddings = self.model.encode(texts, show_progress_bar=False)
+        
+        # Initialize FAISS index if not exists
+        if self.index is None:
+            dimension = embeddings.shape[1]
+            self.index = faiss.IndexFlatL2(dimension)
+            
+        # Add to index
+        self.index.add(np.array(embeddings).astype('float32'))
+        self.skin_data.extend(skins)
+        
+    def search_with_model(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+        """Search for skins matching the query"""
+        if not self.model or not self.index:
+            raise RuntimeError("Search engine not initialized. Call add_skins first.")
+            
+        # Generate query embedding
+        query_embedding = self.model.encode([query], show_progress_bar=False)
+        
+        # Search in FAISS index
+        distances, indices = self.index.search(
+            np.array(query_embedding).astype('float32'), 
+            k
+        )
+        
+        # Return matching skins
+        results = []
+        for idx in indices[0]:
+            if idx < len(self.skin_data):
+                results.append(self.skin_data[idx])
+                
+        return results
 
 
 # Initialize a global instance to be imported by other modules
 def get_skin_search_engine(data_path: Optional[str] = None) -> SkinSearchEngine:
     """Get or create the skin search engine singleton"""
     if not hasattr(get_skin_search_engine, 'instance') or get_skin_search_engine.instance is None:
-        if data_path is None:
-            # Use default path
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(current_dir, "data", "prices_output.json")
-        
-        get_skin_search_engine.instance = SkinSearchEngine(data_path)
+        try:
+            if data_path is None:
+                # Use default path
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                data_path = os.path.join(current_dir, "data", "prices_output.json")
+                
+                # Check if file exists
+                if not os.path.exists(data_path):
+                    # Try alternative data file
+                    alt_path = os.path.join(current_dir, "data", "skinport_data.json")
+                    if os.path.exists(alt_path):
+                        data_path = alt_path
+                    else:
+                        print(f"Warning: Could not find default data file at {data_path} or {alt_path}")
+            
+            # Create and initialize the search engine
+            print(f"Initializing search engine with data from: {data_path}")
+            engine = SkinSearchEngine(data_path)
+            get_skin_search_engine.instance = engine
+            
+            # Basic validation that the engine is properly initialized
+            if not engine.items or not engine.item_names:
+                print("Warning: Search engine initialized but no items loaded")
+            else:
+                print(f"Search engine loaded with {len(engine.item_names)} items")
+                
+        except Exception as e:
+            print(f"Error initializing search engine: {e}")
+            # Create a minimal instance without data for graceful fallback
+            get_skin_search_engine.instance = SkinSearchEngine()
     
     return get_skin_search_engine.instance 

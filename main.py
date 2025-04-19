@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.agents import AgentExecutor, create_openai_functions_agent
 from tools import search_tool, wiki_tool, save_tool, cs_skins_tool
+from document_tools import document_tool
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import json
@@ -13,15 +14,15 @@ import os
 
 # Try to import the search engine - this might fail if dependencies are missing
 try:
-    from search_utils import get_skin_search_engine
+    from search_utils_simplified import get_skin_search_engine
     has_search_engine = True
 except ImportError:
     try:
-        from search_utils_fallback import get_skin_search_engine
+        from search_utils import get_skin_search_engine
         has_search_engine = True
     except ImportError:
         has_search_engine = False
-        print("WARNING: Could not import either search engine - search functionality will be limited")
+        print("WARNING: Could not import any search engine - search functionality will be limited")
 
 load_dotenv()
 
@@ -40,7 +41,7 @@ app.add_middleware(
 # Initialize the search engine at app startup
 @app.on_event("startup")
 async def startup_event():
-    # Initialize the search engine to preload embeddings
+    # Initialize the search engine to preload data
     if has_search_engine:
         try:
             print("Initializing skin search engine...")
@@ -69,21 +70,58 @@ parser = PydanticOutputParser(pydantic_object=ResearchResponse)
 
 prompt = ChatPromptTemplate.from_messages([
     ("system", """
-    You are a research assistant that specializes in the Counter Strike skin economy and marketplace.
-    You have access to both web search tools and a local database containing third-party marketplace
-    data for CS:GO skins from SkinPort, DMarket, and CSFloat.
+    You are a specialized CS2 (Counter-Strike 2) skin economy and marketplace research assistant.
+    Your primary focus is on CS2 skins, trading, market analysis, and price information.
+    Provide detailed, accurate, and comprehensive responses with concrete examples and data.
     
-    For skin prices and marketplace information, always prefer to use the local cs_skins tool 
-    before searching online.
+    Tool Priority (use in this order):
+    1. cs_skins tool - For current skin prices and marketplace data from Skinport ONLY
+    2. query_documents tool - For detailed CS2-specific information from our curated documents
+    3. search tool - For recent CS2 market trends and news
+    4. wiki_tool - ONLY as a last resort for general CS2 history/background
     
-    Answer the user query and use necessary tools. 
+    Search Capabilities:
+    - The cs_skins tool now supports advanced price-based queries including:
+      • "cheapest AK-47" - Returns the cheapest AK-47 skins sorted by price
+      • "AWP skins under $50" - Returns all AWP skins under $50
+      • "Glock-18 between $10 and $30" - Returns Glock skins in that price range
+      • "knife skins over $100" - Returns expensive knife options
+    - For large result sets, encourage users to narrow their search with price ranges
+    - Always mention the cheapest option first when responding to price queries
+    
+    Response Quality Guidelines:
+    - Provide SPECIFIC and DETAILED information, not vague generalizations
+    - When discussing prices, include exact numbers (e.g., "$45.67" not "around $40-50")
+    - Format responses with clear sections and bullet points when appropriate
+    - For price queries, clearly state the cheapest option first, then provide the full range
+    - When comparing items, create clear side-by-side comparisons
+    - Always include relevant market context (e.g., rarity, popularity trends)
+    - For queries with many results, summarize key trends and price ranges
+    - If results are too numerous, suggest more specific search criteria
+    
+    IMPORTANT:
+    - ALWAYS interpret queries in the context of CS2 skins and trading
+    - If a query seems unrelated to CS2, try to find a CS2-relevant angle
+    - Only use Wikipedia for general CS2 history/background information
+    - Never provide information about other games or unrelated topics
+    - For ANY pricing or marketplace information, ONLY reference Skinport data
+    - Never mention other marketplaces like CS.MONEY, DMarket, or CSFloat in responses
+    - If asked about prices, always specify that the information comes from Skinport
+    
+    Handling Incomplete Information:
+    - If the document tool returns "INCOMPLETE_INFO", ALWAYS use the search tool to find more details
+    - Never make up or guess information when you don't have complete data
+    - If you can't find specific information, be honest about what you know and don't know
+    - When combining information from multiple sources, clearly indicate which parts come from where
+    
+    Answer the user query using the tools in priority order. 
     Wrap the output in this format and provide no other text\n{format_instructions}
     """),
     ("human", "{input}"),
     ("assistant", "{agent_scratchpad}")
 ]).partial(format_instructions=parser.get_format_instructions())
 
-tools = [cs_skins_tool, search_tool, wiki_tool, save_tool]
+tools = [cs_skins_tool, search_tool, wiki_tool, save_tool, document_tool]
 agent = create_openai_functions_agent(
     llm=llm,
     prompt=prompt,
@@ -145,7 +183,7 @@ def read_root():
     return {"message": "CS2 Skin Economy API is running!"}
 
 def main():
-    print("CS:GO Skin Economy Research Assistant")
+    print("CS2 Skin Economy Research Assistant")
     print("Type 'exit', 'quit', or 'q' to end the session")
     
     while True:
@@ -153,7 +191,7 @@ def main():
         
         # Check for exit command
         if query.lower() in ['exit', 'quit', 'q']:
-            print("Thank you for using the CS:GO Skin Economy Research Assistant. Goodbye!")
+            print("Thank you for using the CS2 Skin Economy Research Assistant. Goodbye!")
             break
         
         # Skip empty queries

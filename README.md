@@ -261,3 +261,67 @@ The marketplace data is stored in `data/prices_output.json`. This contains price
 ## License
 
 MIT License
+
+## Simplified Search System
+
+The backend now uses a streamlined search system that prioritizes:
+
+1. **Direct Matching**: Exact and substring matching for specific skin names
+2. **Weapon-Type Indexing**: Fast filtering by weapon type (AK-47, AWP, etc.)
+3. **Fuzzy Matching**: For handling typos and alternative spellings
+4. **Comprehensive Results**: Returns all matching items for "cheapest" queries
+
+Benefits of this approach:
+- No heavy ML dependencies (no embeddings or transformers)
+- More accurate results for exact skin name queries
+- Better handling of partial matches like "Glock Water Elemental"
+- Returns ALL results for cheapest skin queries, not just top 10
+- Faster response times and lower resource usage
+
+## Getting Started
+
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Add your OpenAI API key to `.env`:
+```
+OPENAI_API_KEY=your_api_key_here
+```
+
+3. Run the server:
+```bash
+python main.py
+```
+Or use the included script:
+```bash
+bash start_backend.sh
+```
+
+## API Endpoints
+
+- `GET /` - Check if server is running
+- `POST /query` - Submit a query about CS2 skins
+
+## Example Queries
+
+The system now handles these types of queries more effectively:
+
+1. **Exact skin searches**:
+   - "Glock-18 Water Elemental"
+   - "AWP Asiimov"
+
+2. **Price queries**:
+   - "What's the cheapest AK-47 skin?"
+   - "Price of the M4A4 Neo-Noir"
+
+3. **Flexible matching**:
+   - "glock water" (finds Glock-18 Water Elemental)
+   - "cheapest knife" (returns all knives sorted by price)
+
+## Data Structure
+
+Place your CS2 skin data in the `data` folder:
+- `skinport_data.json` - Marketplace pricing data
+- `documents/*.txt` - Guides and information documents

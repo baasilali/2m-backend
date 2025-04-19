@@ -1,24 +1,36 @@
 #!/bin/bash
 
-# Activate virtual environment if it exists
-if [ -d ".venv" ]; then
-  echo "Activating virtual environment..."
-  source .venv/bin/activate
-elif [ -d "venv" ]; then
-  echo "Activating virtual environment..."
-  source venv/bin/activate
+# Set color variables
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}==================================================${NC}"
+echo -e "${GREEN}Starting CS2 Skin Economy API${NC}"
+echo -e "${BLUE}==================================================${NC}"
+
+# Check if virtual environment exists
+if [ -d "venv" ]; then
+    echo -e "${GREEN}Virtual environment found. Activating...${NC}"
+    source venv/bin/activate
+else
+    echo -e "${YELLOW}No virtual environment found. Creating one...${NC}"
+    python -m venv venv
+    source venv/bin/activate
+    echo -e "${GREEN}Installing dependencies...${NC}"
+    pip install -r requirements.txt
 fi
 
-# Install requirements
-echo "Installing requirements..."
-pip install --upgrade pip
-pip install -r requirements.txt --no-cache-dir
-
-# Remove the flag file since we're always installing requirements now
-if [ -f ".requirements_installed" ]; then
-  rm .requirements_installed
+# Check if .env file exists
+if [ ! -f ".env" ]; then
+    echo -e "${YELLOW}No .env file found. Creating a template...${NC}"
+    echo "OPENAI_API_KEY=your_api_key_here" > .env
+    echo -e "${RED}Please edit the .env file to add your OpenAI API key.${NC}"
 fi
 
-# Start the FastAPI server
-echo "Starting FastAPI server..."
-uvicorn main:app --reload --host 0.0.0.0 --port 8000 
+# Start the API server
+echo -e "${GREEN}Starting API server...${NC}"
+echo -e "${YELLOW}Press Ctrl+C to stop the server${NC}"
+uvicorn main:app --reload --port 8000 

@@ -5,19 +5,20 @@ from datetime import datetime
 import json
 import os
 
-# Try to import the full search engine first, fall back to simpler version if needed
+# Try to import the simplified search engine
 try:
-    print("Trying to import full search engine with embeddings...")
-    from search_utils import get_skin_search_engine
-    print("Successfully imported full search engine")
+    print("Importing simplified search engine...")
+    from search_utils_simplified import get_skin_search_engine
+    print("Successfully imported simplified search engine")
 except ImportError as e:
-    print(f"Error importing full search engine: {e}")
-    print("Falling back to simplified fuzzy search engine")
+    print(f"Error importing simplified search engine: {e}")
+    # Fall back to original search engines if needed
     try:
-        from search_utils_fallback import get_skin_search_engine
-        print("Successfully imported fallback search engine")
+        print("Falling back to original search engine...")
+        from search_utils import get_skin_search_engine
+        print("Successfully imported original search engine")
     except ImportError:
-        print("ERROR: Failed to import either search engine")
+        print("ERROR: Failed to import any search engine")
         raise
 
 def save_to_txt(data: str, filename: str = "research_output.txt"):
@@ -54,57 +55,37 @@ def query_cs_skins(query: str) -> str:
         
         # Initialize search engine and load data
         search_engine = get_skin_search_engine(marketplace_path)
-        items = search_engine.items
         
-        if not items:
-            return "Marketplace data not available or empty."
+        # Detect query type to determine appropriate limitations
+        # The enhanced price detection will handle formats like:
+        # - "under $10"
+        # - "between $20 and $50"
+        # - "cheapest AK-47"
+        # - "most expensive knife"
         
-        query = query.lower().strip()
+        # Let the search engine's sophisticated query detection handle limitations
+        is_price_query, max_price, min_price = search_engine.detect_price_query(query)
+        query_lower = query.lower()
         
-        # Use semantic search to find relevant items
-        item_candidates = []
-        item_scores = {}
-        
-        # Get search results
-        search_results = search_engine.hybrid_search(query, top_k=3)  # Reduced to 3 for more focused results
-        
-        # If no results found with semantic search, try partial match as fallback
-        if not search_results:
-            # Display informative message if no matches
-            return f"I couldn't find any items matching '{query}'. Please try using a more specific name or check your spelling."
-        
-        # Extract item names and their scores
-        item_candidates = [result['item_name'] for result in search_results]
-        item_scores = {result['item_name']: result['total_score'] for result in search_results}
-        
-        # For price queries, show detailed information for the top match
-        if any(term in query for term in ["price", "cost", "value", "how much", "min", "max", "average"]):
-            if len(item_candidates) >= 1:
-                # Get the top match
-                item_name = item_candidates[0]
-                item_data = items[item_name]
-                
-                # Create a focused summary with clear price distinctions
-                summary = f"The {item_name}:\n"
-                summary += f"• SkinPort suggests: ${item_data.get('suggested_price', 'N/A')}\n"
-                summary += f"• Actual market prices: ${item_data.get('min_price', 'N/A')} - ${item_data.get('max_price', 'N/A')}\n"
-                summary += f"• Available quantity: {item_data.get('quantity', 'N/A')} items"
-                
-                return summary
-            else:
-                return f"I couldn't find any items matching '{query}'. Please try a more specific item name."
-        
-        # Generic item queries - show multiple matches with detailed information
-        if item_candidates:
-            result = []
-            for item_name in item_candidates:
-                item_data = items[item_name]
-                result.append(f"{item_name}:\n• Suggested: ${item_data.get('suggested_price', 'N/A')}\n• Market: ${item_data.get('min_price', 'N/A')} - ${item_data.get('max_price', 'N/A')}\n• Available: {item_data.get('quantity', 'N/A')}")
+        # No limit for:
+        # 1. Cheapest/most expensive queries
+        # 2. Price range queries (under $X, over $X)
+        # 3. Specific weapon price queries
+        if "cheapest" in query_lower or "most expensive" in query_lower or max_price is not None or min_price is not None:
+            limit = None
+        else:
+            # Default limit for general queries
+            limit = 15
             
-            return "\n".join(result)
+        # Log search parameters for debugging
+        print(f"Search query: '{query}'")
+        print(f"Price query: {is_price_query}, Max: {max_price}, Min: {min_price}, Limit: {limit}")
         
-        # No items found with any method
-        return f"I couldn't find any items matching '{query}'. Please try using a more specific name or check your spelling."
+        # Perform the search with our enhanced engine
+        results = search_engine.search(query, limit=limit)
+        
+        # Format the results nicely
+        return search_engine.format_search_results(results, query)
     
     except Exception as e:
         return f"An error occurred while searching for skins: {str(e)}"
@@ -112,6 +93,6 @@ def query_cs_skins(query: str) -> str:
 cs_skins_tool = Tool(
     name="cs_skins",
     func=query_cs_skins,
-    description="Retrieve information about Counter Strike skin prices from marketplace data including SkinPort, DMarket and CSFloat.",
+    description="Retrieve detailed information about Counter Strike skin prices from Skinport marketplace data. Handles various price queries including 'cheapest AK-47', 'skins under $10', 'AWP between $50 and $100', etc. Returns comprehensive results sorted by price for price-related queries.",
 )
 

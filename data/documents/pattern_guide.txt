@@ -1,0 +1,19 @@
+Introduction to Patterns:
+
+Q: What are patterns?, What are pattern IDs?, What is a pattern Template? What is a Pattern Based Skin?
+
+A: Some skins in Counter Strike are known as “Pattern Based.” This means the texture for the skin is actually a peice of artwork layed onto the weapon in a specific orientation. This orientation is randomly assigned when the skin is opened or droped and can be identified using a “Pattern ID” which is a number between 1-1000. (You can find Pattern IDs whe nyou inspect the weapon). If two of the same pattern-based skin have the same pattern id, the two skins will be identical. A good analogy is that the Pattern ID acts as coordinates, coordinates that specify how the pattern is placed on the gun, impacting the final look of that particular skin.
+
+_____________________________________________________
+
+Q: Why do Pattern Templates look different/unfamilar when I compare the image to the weapon skin in the game?
+A: Color Images are typically stored in red, green and blue channels that combine additively to represent a large range of color values. For skin patterns, Valve takes advantage of this configuration to store three seperate images, creating the final template.
+
+
+_____________________________________________________
+
+Q: What are Case Hardened Skins? Why are Case Hardened so rare?
+What is a Blue Gem? 
+
+
+
