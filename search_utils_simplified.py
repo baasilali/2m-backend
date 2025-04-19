@@ -70,10 +70,21 @@ class SimpleSkinSearchEngine:
         # Add item names to the appropriate weapon type lists
         for item_name in self.item_names:
             item_lower = item_name.lower()
-            for weapon in weapon_types:
-                if weapon.lower() in item_lower:
-                    self.weapon_type_index[weapon.lower()].append(item_name)
-                    break
+            
+            # First check for StatTrak variants - they have the weapon name after the StatTrak prefix
+            if "stattrak™" in item_lower or "stattrak" in item_lower:
+                for weapon in weapon_types:
+                    weapon_lower = weapon.lower()
+                    if weapon_lower in item_lower:
+                        self.weapon_type_index[weapon_lower].append(item_name)
+                        break
+            else:
+                # Then check regular weapons
+                for weapon in weapon_types:
+                    weapon_lower = weapon.lower()
+                    if weapon_lower in item_lower:
+                        self.weapon_type_index[weapon_lower].append(item_name)
+                        break
     
     def exact_match(self, query: str) -> List[str]:
         """
@@ -121,10 +132,13 @@ class SimpleSkinSearchEngine:
         # Get items for this weapon type
         weapon_items = self.weapon_type_index.get(weapon_lower, [])
         
-        # Filter by skin name
+        # Filter by skin name, making sure not to filter out StatTrak variants
         matches = []
         for item_name in weapon_items:
-            if skin_lower in item_name.lower():
+            item_lower = item_name.lower()
+            # Check if the skin name is in the item name, ignoring the StatTrak prefix if present
+            clean_item_name = item_lower.replace("stattrak™ ", "").replace("stattrak ", "")
+            if skin_lower in clean_item_name:
                 matches.append(item_name)
         
         return matches
@@ -165,8 +179,53 @@ class SimpleSkinSearchEngine:
                 # Skip items with invalid price data
                 continue
         
-        # Sort by minimum price
+        # Sort by minimum price (ascending for cheapest)
         price_data.sort(key=lambda x: x['min_price'])
+        
+        # Apply limit if specified
+        if limit is not None:
+            price_data = price_data[:limit]
+            
+        return price_data
+    
+    def search_most_expensive_by_weapon(self, weapon_type: str, limit: int = None) -> List[Dict[str, Any]]:
+        """
+        Find the most expensive skins for a specific weapon type
+        
+        Args:
+            weapon_type: The weapon type to search for
+            limit: Optional limit on number of results (None = no limit)
+            
+        Returns:
+            List of item data dictionaries with price info, sorted by price (highest first)
+        """
+        weapon_lower = weapon_type.lower()
+        
+        # Get items for this weapon type
+        weapon_items = self.weapon_type_index.get(weapon_lower, [])
+        if not weapon_items:
+            return []
+            
+        # Extract price data and sort
+        price_data = []
+        for item_name in weapon_items:
+            item_data = self.items[item_name]
+            try:
+                min_price = float(item_data.get('min_price', '999999'))
+                price_data.append({
+                    'item_name': item_name,
+                    'min_price': min_price,
+                    'max_price': float(item_data.get('max_price', '999999')),
+                    'suggested_price': float(item_data.get('suggested_price', '999999')),
+                    'quantity': item_data.get('quantity', 0),
+                    'item_data': item_data
+                })
+            except (ValueError, TypeError):
+                # Skip items with invalid price data
+                continue
+        
+        # Sort by minimum price (descending for most expensive)
+        price_data.sort(key=lambda x: x['min_price'], reverse=True)
         
         # Apply limit if specified
         if limit is not None:
@@ -216,7 +275,12 @@ class SimpleSkinSearchEngine:
                         "AK-47", "M4A4", "M4A1-S", "AWP", "Desert Eagle", "USP-S", "Glock-18",
                         "P250", "Five-SeveN", "CZ75-Auto", "Tec-9", "Knife", "Karambit", "Bayonet",
                         "Butterfly", "Gloves", "P90", "MAC-10", "MP9", "MP7", "UMP-45", "PP-Bizon",
-                        "Galil AR", "FAMAS", "SG 553", "AUG", "SSG 08", "G3SG1", "SCAR-20"
+                        "Galil AR", "FAMAS", "SG 553", "AUG", "SSG 08", "G3SG1", "SCAR-20", "Dual Berettas",
+                        "R8 Revolver", "P2000", "MP5-SD", "MAG-7", "Nova", "Sawed-Off", "XM1014", "M249", "Negev",
+                        "Bowie", "Classic Knife", "Falchion", "Flip", "Gut", "Huntsman", "Kukri", "M9 Bayonet",
+                        "Navaja", "Nomad", "Paracord", "Shadow Daggers", "Skeleton", "Stiletto", "Survival", "Talon",
+                        "Ursus", "Zeus x27"
+
                     ])):
                     continue
                     
@@ -318,7 +382,8 @@ class SimpleSkinSearchEngine:
         # Basic price query detection
         price_keywords = [
             "price", "cost", "value", "worth", "expensive", "cheap", "cheapest", 
-            "affordable", "budget", "money", "dollar", "usd", "$"
+            "affordable", "budget", "money", "dollar", "usd", "$", "most expensive",
+            "highest price", "priciest"
         ]
         
         is_price_query = any(keyword in query_lower for keyword in price_keywords)
@@ -433,7 +498,10 @@ class SimpleSkinSearchEngine:
             if any(alias in query for alias in aliases):
                 detected_weapon = weapon
                 break
-                
+        
+        # Check for StatTrak keyword
+        is_stattrak = "stattrak" in query.lower() or "stat trak" in query.lower() or "stat-trak" in query.lower()
+        
         # Try to extract skin name if weapon is detected
         skin_name = None
         if detected_weapon:
@@ -442,7 +510,7 @@ class SimpleSkinSearchEngine:
             for alias in weapon_names.get(detected_weapon, []):
                 clean_query = clean_query.replace(alias, "")
                 
-            for term in ["price", "cost", "value", "how much", "cheapest", "expensive"]:
+            for term in ["price", "cost", "value", "how much", "cheapest", "expensive", "stattrak", "stat trak", "stat-trak"]:
                 clean_query = clean_query.replace(term, "")
                 
             skin_name = clean_query.strip()
@@ -455,18 +523,28 @@ class SimpleSkinSearchEngine:
             # Results will be limited to 15 items to avoid token limit issues
             price_results = self.search_by_price_range(detected_weapon, max_price, min_price or 0)
             if price_results:
+                # Filter for StatTrak if specified
+                if is_stattrak:
+                    price_results = [r for r in price_results if "stattrak" in r['item_name'].lower() or "stat trak" in r['item_name'].lower()]
                 return price_results
         
         # Case 2: Cheapest weapon skin query (always sort by price)
-        if ("cheapest" in query or "lowest price" in query or "least expensive" in query):
+        if "cheapest" in query or "lowest price" in query or "least expensive" in query:
             if detected_weapon:
                 price_data = self.search_cheapest_by_weapon(detected_weapon, limit=25)  # Increased limit for cheapest queries
+                # Filter for StatTrak if specified
+                if is_stattrak:
+                    price_data = [r for r in price_data if "stattrak" in r['item_name'].lower() or "stat trak" in r['item_name'].lower()]
                 if price_data:
                     return price_data
             else:
                 # Generic cheapest query - search all items
                 all_items = []
                 for item_name in self.item_names:
+                    # Skip non-StatTrak items if StatTrak was specified
+                    if is_stattrak and not ("stattrak" in item_name.lower() or "stat trak" in item_name.lower()):
+                        continue
+                    
                     item_data = self.items[item_name]
                     try:
                         min_price = float(item_data.get('min_price', '999999'))
@@ -483,6 +561,41 @@ class SimpleSkinSearchEngine:
                 
                 # Sort by price and return top 25
                 all_items.sort(key=lambda x: x['min_price'])
+                return all_items[:25]
+        
+        # Case 2.5: Most expensive weapon skin query
+        if "most expensive" in query or "highest price" in query or "priciest" in query:
+            if detected_weapon:
+                price_data = self.search_most_expensive_by_weapon(detected_weapon, limit=25)  # Return top 25 most expensive
+                # Filter for StatTrak if specified
+                if is_stattrak:
+                    price_data = [r for r in price_data if "stattrak" in r['item_name'].lower() or "stat trak" in r['item_name'].lower()]
+                if price_data:
+                    return price_data
+            else:
+                # Generic most expensive query - search all items
+                all_items = []
+                for item_name in self.item_names:
+                    # Skip non-StatTrak items if StatTrak was specified
+                    if is_stattrak and not ("stattrak" in item_name.lower() or "stat trak" in item_name.lower()):
+                        continue
+                    
+                    item_data = self.items[item_name]
+                    try:
+                        min_price = float(item_data.get('min_price', '999999'))
+                        all_items.append({
+                            'item_name': item_name,
+                            'min_price': min_price,
+                            'max_price': float(item_data.get('max_price', '999999')),
+                            'suggested_price': float(item_data.get('suggested_price', '999999')),
+                            'quantity': item_data.get('quantity', 0),
+                            'item_data': item_data
+                        })
+                    except (ValueError, TypeError):
+                        continue
+                
+                # Sort by price (descending) and return top 25
+                all_items.sort(key=lambda x: x['min_price'], reverse=True)
                 return all_items[:25]
                 
         # Case 3: Specific weapon + skin query
@@ -615,6 +728,9 @@ class SimpleSkinSearchEngine:
         is_price_query, max_price, min_price = self.detect_price_query(query)
         query_lower = query.lower()
         
+        # Check for StatTrak keyword
+        is_stattrak = "stattrak" in query_lower or "stat trak" in query_lower or "stat-trak" in query_lower
+        
         # Determine if this was a specific weapon query
         weapon_names = ["ak-47", "m4a4", "m4a1-s", "awp", "desert eagle", "glock-18", "usp-s", "p250", "knife"]
         detected_weapon = None
@@ -631,6 +747,10 @@ class SimpleSkinSearchEngine:
         if len(results) != 1:
             header += "s"
         
+        # Add StatTrak info if detected
+        if is_stattrak:
+            header += " (StatTrak™)"
+        
         # Add weapon info if detected
         if detected_weapon:
             header += f" for {detected_weapon}"
@@ -643,10 +763,21 @@ class SimpleSkinSearchEngine:
         elif min_price is not None:
             header += f" over ${min_price:.2f}"
         
-        # Add cheapest item summary for price queries
-        if is_price_query and len(results) > 0:
-            cheapest_item = min(results, key=lambda x: x['min_price'])
-            header += f"\nThe cheapest{' ' + detected_weapon if detected_weapon else ''} skin is {cheapest_item['item_name']} at ${cheapest_item['min_price']:.2f}"
+        # Check if this is a "most expensive" query
+        is_most_expensive_query = "most expensive" in query_lower or "highest price" in query_lower or "priciest" in query_lower
+        
+        # Add price-related item summary
+        if len(results) > 0:
+            if is_most_expensive_query:
+                # For most expensive queries, highlight the most expensive item (first in results, as they're sorted)
+                expensive_item = results[0]
+                stattrak_label = "StatTrak™ " if is_stattrak else ""
+                header += f"\nThe most expensive {stattrak_label}{detected_weapon if detected_weapon else ''} skin is {expensive_item['item_name']} at ${expensive_item['min_price']:.2f}"
+            elif "cheapest" in query_lower or "lowest price" in query_lower or is_price_query:
+                # For cheapest queries, highlight the cheapest item
+                cheapest_item = min(results, key=lambda x: x['min_price'])
+                stattrak_label = "StatTrak™ " if is_stattrak else ""
+                header += f"\nThe cheapest {stattrak_label}{detected_weapon if detected_weapon else ''} skin is {cheapest_item['item_name']} at ${cheapest_item['min_price']:.2f}"
         
         # Add note about limited results
         if is_limited:
