@@ -1,4 +1,6 @@
 from dotenv import load_dotenv
+load_dotenv()
+
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -23,8 +25,6 @@ except ImportError:
     except ImportError:
         has_search_engine = False
         print("WARNING: Could not import any search engine - search functionality will be limited")
-
-load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI()
