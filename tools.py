@@ -4,6 +4,7 @@ from langchain.tools import Tool
 from datetime import datetime
 import json
 import os
+import time
 
 # Try to import the simplified search engine
 try:
@@ -49,46 +50,70 @@ wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper)
 def query_cs_skins(query: str) -> str:
     """Query the Counter Strike marketplace skin database."""
     try:
-        # Get the directory of the current file
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        marketplace_path = os.path.join(current_dir, "data", "skinport_data.json")
+        # Import search engine utilities
+        from search_utils_simplified import get_skin_search_engine
+        import os
+        import time
+        import json
+        from datetime import datetime, timedelta
         
-        # Initialize search engine and load data
-        search_engine = get_skin_search_engine(marketplace_path)
+        # Initialize the search engine
+        search_engine = get_skin_search_engine()
         
-        # Detect query type to determine appropriate limitations
-        # The enhanced price detection will handle formats like:
-        # - "under $10"
-        # - "between $20 and $50"
-        # - "cheapest AK-47"
-        # - "most expensive knife"
+        # Check data freshness
+        data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "skinport_data.json")
+        data_is_stale = False
+        refresh_message = ""
         
-        # Let the search engine's sophisticated query detection handle limitations
-        is_price_query, max_price, min_price = search_engine.detect_price_query(query)
-        query_lower = query.lower()
-        
-        # No limit for:
-        # 1. Cheapest/most expensive queries
-        # 2. Price range queries (under $X, over $X)
-        # 3. Specific weapon price queries
-        if "cheapest" in query_lower or "most expensive" in query_lower or max_price is not None or min_price is not None:
-            limit = None
-        else:
-            # Default limit for general queries
-            limit = 15
+        if os.path.exists(data_path):
+            # Get file modification time
+            mod_time = os.path.getmtime(data_path)
+            current_time = time.time()
             
-        # Log search parameters for debugging
+            # Calculate hours since last update
+            hours_since_update = (current_time - mod_time) / 3600
+            
+            # If data is older than 24 hours, consider it stale
+            if hours_since_update > 24:
+                data_is_stale = True
+                days_old = int(hours_since_update / 24)
+                refresh_message = f"\n\nNote: Price data is {days_old} day{'s' if days_old > 1 else ''} old. Some items or prices may have changed."
+        
+        # Parse the query for price thresholds
+        is_price_query, max_price, min_price = search_engine.detect_price_query(query)
+        
+        # Set limit based on query type (more results for price queries)
+        limit = 15 if is_price_query else 10
+        
+        # Log the search query for analytics and debugging
         print(f"Search query: '{query}'")
         print(f"Price query: {is_price_query}, Max: {max_price}, Min: {min_price}, Limit: {limit}")
         
-        # Perform the search with our enhanced engine
-        results = search_engine.search(query, limit=limit)
+        # Choose search method based on query type
+        if is_price_query:
+            # For price queries, use the regular search which has specific handling for price ranges
+            results = search_engine.search(query, limit=limit)
+        else:
+            # For non-price queries, use the hierarchical search for better accuracy
+            results = search_engine.hierarchical_search(query, limit=limit)
+            # If no results, fall back to regular search
+            if not results:
+                print("No results from hierarchical search, trying regular search")
+                results = search_engine.search(query, limit=limit)
         
         # Format the results nicely
-        return search_engine.format_search_results(results, query)
+        formatted_results = search_engine.format_search_results(results, query)
+        
+        # Add the data freshness warning if needed
+        if data_is_stale:
+            formatted_results += refresh_message
+            
+        return formatted_results
     
     except Exception as e:
-        return f"An error occurred while searching for skins: {str(e)}"
+        error_msg = str(e)
+        print(f"Error in CS2 skin search: {error_msg}")
+        return f"An error occurred while searching for CS2 skins: {error_msg}. Please try a more specific query or check your spelling."
 
 cs_skins_tool = Tool(
     name="cs_skins",
