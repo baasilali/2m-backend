@@ -1,25 +1,35 @@
 # Core dependencies
-langchain==0.0.335
-langchain-community==0.0.16
-langchain-core==0.1.17
-langchain-openai==0.0.5
-langchain-anthropic==0.0.6
-pydantic==2.5.2
-fastapi==0.105.0
-uvicorn==0.24.0
-python-dotenv==1.0.0
+langchain>=0.0.335
+langchain-community>=0.0.16
+langchain-core>=0.1.17
+langchain-openai>=0.0.5
+langchain-anthropic>=0.1.0
+pydantic>=2.5.2
+fastapi>=0.105.0
+uvicorn>=0.24.0
+python-dotenv>=1.0.0
 
-# For basic fuzzy matching
-fuzzywuzzy==0.18.0
-python-Levenshtein==0.22.0
+# Vector embeddings and similarity search
+sentence-transformers>=2.2.2
+faiss-cpu>=1.7.4
+numpy>=1.24.3
+scikit-learn>=1.3.0
+
+# For basic fuzzy matching (keeping as fallback)
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.22.0
 
 # Web integrations
-duckduckgo-search==3.9.9
-wikipedia==1.4.0
-httpx==0.25.2
+duckduckgo-search>=3.9.9
+wikipedia>=1.4.0
+httpx>=0.25.2
 
 # OpenAI integration
-openai==1.3.7
+openai>=1.3.7
 
 # Optional - Anthropic integration
-anthropic==0.7.7
+anthropic>=0.7.7
+
+# Additional vector database support
+chromadb>=0.4.15
+tiktoken>=0.5.1
