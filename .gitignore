@@ -37,3 +37,7 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db 
+# Vector embedding cache files
+data/vector_embeddings_cache.pkl
+data/doc_cache/
+data/embeddings/
